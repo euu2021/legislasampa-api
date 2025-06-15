@@ -6,6 +6,7 @@ import org.springframework.boot.CommandLineRunner;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 
+/*
 @SpringBootApplication
 public class SampachatApiApplication implements CommandLineRunner {
 
@@ -22,5 +23,13 @@ public class SampachatApiApplication implements CommandLineRunner {
 		cargaDadosService.carregarDadosDaPlanilha(); // Primeiro, carrega da planilha
 		cargaDadosService.gerarEmbeddings();      // Depois, gera os embeddings
 		System.out.println(">>> Tarefas de inicialização concluídas.");
+	}
+}
+*/
+
+@SpringBootApplication
+public class SampachatApiApplication {
+	public static void main(String[] args) {
+		SpringApplication.run(SampachatApiApplication.class, args);
 	}
 }
