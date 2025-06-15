@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LegislaSampa - Pesquisa de Leis</title>
+    <!-- Link para nosso arquivo de estilos -->
+    <link rel="stylesheet" href="style.css">
+    <!-- O 'defer' faz o script carregar só depois do HTML, o que é uma boa prática -->
+    <script src="script.js" defer></script>
+</head>
+<body>
+
+<div class="container">
+    <header>
+        <h1>LegislaSampa </h1>
+        <p>Pesquisa de proposições legislativas da Câmara Municipal de São Paulo.</p>
+    </header>
+
+    <main>
+        <form id="search-form">
+            <input type="text" id="search-input" placeholder="Ex: rubinho cidade limpa 2023..." required>
+            <button type="submit">Pesquisar</button>
+        </form>
+
+        <div class="search-options">
+            <label>
+                <input type="radio" name="search-mode" value="exato" checked>
+                Busca Exata
+            </label>
+            <label>
+                <input type="radio" name="search-mode" value="aproximado">
+                Busca Aproximada (IA)
+            </label>
+        </div>
+
+        <!-- Área de feedback para o usuário -->
+        <div id="loading" class="hidden">
+            <div class="spinner"></div>
+            <span>Buscando...</span>
+        </div>
+        <div id="error-message" class="hidden"></div>
+
+        <!-- Os resultados da busca serão inseridos aqui pelo JavaScript -->
+        <div id="results-container"></div>
+    </main>
+</div>
+
+</body>
+</html>
