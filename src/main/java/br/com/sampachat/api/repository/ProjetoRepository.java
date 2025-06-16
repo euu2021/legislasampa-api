@@ -17,7 +17,8 @@ public interface ProjetoRepository extends JpaRepository<Projeto, Integer> {
     @Query(
             value = "SELECT * FROM projetos " +
                     "WHERE ts_search @@ to_tsquery('portuguese', :query) " +
-                    "LIMIT 20", // Removido o ORDER BY para simplificar
+                    "ORDER BY ano DESC, numero DESC " +
+                    "LIMIT 999", // Removido o ORDER BY para simplificar
             nativeQuery = true
     )
     List<Projeto> searchByFTS(@Param("query") String query);

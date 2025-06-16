@@ -63,8 +63,8 @@ public class SearchService {
 
             String sql = "SELECT * FROM projetos " +
                     "WHERE ts_search @@ to_tsquery('portuguese', '" + ftsQuery + "') " +
-                    "ORDER BY ts_rank(ts_search, to_tsquery('portuguese', '" + ftsQuery + "')) DESC " +
-                    "LIMIT 20";
+                    "ORDER BY ano DESC, numero DESC " +
+                    "LIMIT 999";
 
             Query query = entityManager.createNativeQuery(sql, Projeto.class);
 

@@ -49,7 +49,9 @@ document.addEventListener('DOMContentLoaded', () => {
             const data = await response.json();
             console.log("Dados recebidos da API:", data);
 
-            displayResults(data);
+            displayResults(data, query, searchMode);
+
+
 
         } catch (error) {
             console.error('Falha ao buscar dados:', error);
@@ -62,7 +64,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
 
 
-    function displayResults(projetos) {
+    function displayResults(projetos, query, searchMode) {
+        const highlight =
+                        (searchMode === 'exato') ? makeHighlighter(query) : (x => x);
+
+        resultsContainer.innerHTML = '';
+
         if (!projetos || projetos.length === 0) {
             console.log("Nenhum resultado para exibir.");
             displayError('Nenhum resultado encontrado para sua busca.');
@@ -70,20 +77,20 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         console.log(`Exibindo ${projetos.length} resultados.`);
-        projetos.forEach(projeto => {
+        projetos.forEach((projeto, index) => {
             const card = document.createElement('div');
             card.className = 'result-card';
 
             let keywordsHtml = '';
             if (projeto.palavrasChave && projeto.palavrasChave.trim() !== '') {
                 const keywordsArray = projeto.palavrasChave.split('|').map(k => k.trim().toLowerCase());
-                keywordsHtml = `<div class="keywords-container">${keywordsArray.map(keyword => `<span class="keyword-tag">${keyword}</span>`).join('')}</div>`;
+                keywordsHtml = `<div class="keywords-container">${keywordsArray.map(k => `<span class="keyword-tag">${highlight(k)}</span>`).join('')}</div>`;
             }
 
             card.innerHTML = `
-                <h3>${projeto.tipo || 'PROJETO'} ${projeto.numero}/${projeto.ano}</h3>
-                <p class="meta">Autor(es): ${projeto.autor || 'Não informado'}</p>
-                <p>${projeto.ementa}</p>
+                <h3>${highlight(`${index + 1}. ${projeto.tipo || 'PROJETO'} ${projeto.numero}/${projeto.ano}`)}</h3>
+                <p class="meta">Autor(es): ${highlight(projeto.autor || 'Não informado')}</p>
+                <p>${highlight(projeto.ementa)}</p>
                 ${keywordsHtml}
                 <a href="${projeto.linkOficial}" target="_blank" rel="noopener noreferrer">Ver na íntegra no site da Câmara</a>
             `;
@@ -95,4 +102,50 @@ document.addEventListener('DOMContentLoaded', () => {
         errorMessageDiv.textContent = message;
         errorMessageDiv.classList.remove('hidden');
     }
+
+    function escapeRegExp(str) {
+        return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    }
+
+    /**
+     * Retorna uma função highlight(text) que marca as partes da string
+     * que batem com qualquer termo da consulta, mesmo sem acento.
+     */
+    function makeHighlighter(query) {
+      // Remove acentos da consulta
+      const strip = s => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+      // Quebra em termos, ignora tokens de 1 caractere, escapa regex
+      const terms = strip(query)
+          .split(/\s+/)
+          .filter(t => t.length > 1)
+          .map(escapeRegExp);
+
+      if (!terms.length) return text => text;   // nada a destacar
+
+      // Regex procura termos “desacentuados” na versão plain-text
+      const regex = new RegExp(`(${terms.join('|')})`, 'gi');
+
+      // Função de realce que trabalha em duas etapas:
+      // 1) Gera string “plain” (sem acento) paralela
+      // 2) Substitui no índice correto da string original
+      return rawText => {
+        const plain = strip(rawText);
+        let result = '';
+        let last = 0;
+
+        plain.replace(regex, (match, _grp, offset) => {
+          // Copia trecho anterior sem mudança
+          result += rawText.slice(last, offset);
+          // Copia trecho encontrado com marcação
+          result += '<mark>' + rawText.slice(offset, offset + match.length) + '</mark>';
+          last = offset + match.length;
+          return match;
+        });
+
+        // Copia resto da string
+        return result + rawText.slice(last);
+      };
+    }
+
 });
