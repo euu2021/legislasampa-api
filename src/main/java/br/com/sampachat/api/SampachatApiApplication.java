@@ -33,3 +33,22 @@ public class SampachatApiApplication {
 		SpringApplication.run(SampachatApiApplication.class, args);
 	}
 }
+
+//@SpringBootApplication
+//public class SampachatApiApplication implements CommandLineRunner {
+//
+//	@Autowired
+//	private CargaDadosService cargaDadosService;
+//
+//	public static void main(String[] args) {
+//		SpringApplication.run(SampachatApiApplication.class, args);
+//	}
+//
+//	@Override
+//	public void run(String... args) throws Exception {
+//		System.out.println(">>> EXECUTANDO CARGA DE DADOS LOCALMENTE PARA O BANCO DE PRODUÇÃO <<<");
+//		cargaDadosService.carregarDadosDaPlanilha();
+//		cargaDadosService.gerarEmbeddings();
+//		System.out.println(">>> CARGA DE DADOS CONCLUÍDA. <<<");
+//	}
+//}
