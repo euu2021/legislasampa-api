@@ -15,6 +15,7 @@ import jakarta.persistence.Convert;
 
 
 
+
 @Getter
 @Setter
 @Entity
@@ -33,9 +34,11 @@ public class Projeto {
 
     private Integer numero;
     private Integer ano;
+    
+    @Column(columnDefinition = "TEXT")
     private String autor;
 
-    @Column(name = "autor_search")
+    @Column(name = "autor_search", columnDefinition = "TEXT")
     private String autorSearch;
 
     @Column(columnDefinition = "TEXT")
@@ -45,9 +48,6 @@ public class Projeto {
     private String palavrasChave;
 
     // Não vamos mapear o ts_vector, pois ele é gerado pelo banco
-
-    @Column(name = "link_oficial")
-    private String linkOficial;
 
     @JdbcTypeCode(SqlTypes.VECTOR)
     @Array(length = 384)

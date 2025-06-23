@@ -19,30 +19,54 @@
 
     <main>
         <form id="search-form">
-            <input type="text" id="search-input" placeholder="Ex: rubinho cidade limpa 2023..." required>
+            <input type="text" id="search-input" placeholder="" required>
             <button type="submit">Pesquisar</button>
         </form>
 
-        <div class="search-options">
-            <label>
-                <input type="radio" name="search-mode" value="exato" checked>
-                Busca Simples
-            </label>
-            <label>
-                <input type="radio" name="search-mode" value="aproximado">
-                Busca Inteligente
-            </label>
+        <div id="search-examples">
+            <p>A pesquisa pode ser feita de várias formas. Exemplos:</p>
+            <div class="examples-container">
+                <span>- pl 680</span>
+                <span>- 680 2025</span>
+                <span>- projeto de lei 680/2025</span>
+                <span>- educacao infantil</span>
+                <span>- "educação no trânsito"</span>
+                <span>- keit educação</span>
+                <span>- educaçao entre 2020 e 2025</span>
+                <span>- plo últimos 5 anos</span>
+                <span>- 2022-2024 major palumbo segurança pública</span>
+                <span>- projetos de 2022 a 2024 do major palumbo sobre segurança pública</span>
+            </div>
+        </div>
+
+        <div id="filters-container" class="hidden">
+            <span>Filtros aplicados:</span>
+            <div id="chips-area">
+                <!-- Os chips serão inseridos aqui pelo JavaScript -->
+            </div>
         </div>
 
         <!-- Área de feedback para o usuário -->
-        <div id="loading" class="hidden">
-            <div class="spinner"></div>
-            <span>Buscando...</span>
-        </div>
         <div id="error-message" class="hidden"></div>
 
         <!-- Os resultados da busca serão inseridos aqui pelo JavaScript -->
         <div id="results-container"></div>
+
+        <div id="loading" class="hidden">
+            <div class="spinner"></div>
+            <span>Buscando...</span>
+        </div>
+        <!-- Botão para carregar mais resultados -->
+        <button id="load-more" class="hidden">Carregar mais resultados</button>
+        
+        <!-- Mensagem de fim dos resultados -->
+        <div id="end-results-message" class="hidden">
+            Fim dos resultados
+        </div>
+        
+        <!-- Elemento para o Infinite Scroll -->
+        <div id="scroll-sentinel"></div>
+
     </main>
 </div>
 

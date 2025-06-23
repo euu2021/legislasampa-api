@@ -1,0 +1,52 @@
+    /**
+     * Sincroniza projetos de todos os tipos com mecanismo de retry
+     * @return true se a sincronização foi bem-sucedida, false caso contrário
+     */
+    public boolean syncAllTiposWithRetry() {
+        int attempts = 0;
+        boolean success = false;
+        Exception lastException = null;
+        
+        while (!success && attempts < maxRetryAttempts) {
+            attempts++;
+            
+            try {
+                if (attempts > 1) {
+                    logger.info("Tentativa {} de sincronização após falha anterior", attempts);
+                    
+                    // Aguarda antes de tentar novamente
+                    try {
+                        Thread.sleep(retryDelayMs);
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        logger.warn("Thread interrompida durante espera para retry");
+                    }
+                }
+                
+                // Realiza a sincronização
+                syncAllTipos();
+                
+                // Se chegou aqui, a sincronização foi bem-sucedida
+                success = true;
+                logger.info("Sincronização bem-sucedida na tentativa {}", attempts);
+                
+            } catch (Exception e) {
+                lastException = e;
+                logger.error("Falha na tentativa {} de sincronização: {}", attempts, e.getMessage(), e);
+                
+                if (attempts < maxRetryAttempts) {
+                    logger.info("Tentando novamente em {} ms", retryDelayMs);
+                }
+            }
+        }
+        
+        // Atualiza o contador de tentativas no último registro de status
+        syncStatusService.updateLastEntryRetryCount(attempts - 1);
+        
+        if (!success && lastException != null) {
+            logger.error("Todas as {} tentativas de sincronização falharam. Último erro: {}", 
+                    maxRetryAttempts, lastException.getMessage());
+        }
+        
+        return success;
+    }

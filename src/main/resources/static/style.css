@@ -38,7 +38,7 @@ header p {
 #search-form {
     display: flex;
     gap: 10px;
-    margin-bottom: 20px;
+    margin-bottom: 60px;
 }
 
 #search-input {
@@ -72,6 +72,31 @@ header p {
     background-color: #0056b3;
 }
 
+/* Estilos para exemplos de pesquisa */
+#search-examples {
+    margin-bottom: 20px;
+    font-size: 0.95rem;
+    color: #555;
+}
+
+#search-examples p {
+    margin-bottom: 12px;
+    font-weight: 500;
+}
+
+.examples-container {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-left: 15px;
+}
+
+.examples-container span {
+    display: block;
+    font-family: 'Courier New', monospace;
+    font-size: 0.9rem;
+}
+
 /* Cards de resultado */
 .result-card {
     background-color: #fff;
@@ -84,7 +109,7 @@ header p {
 
 .result-card h3 {
     margin-bottom: 10px;
-    color: #1a0dab;
+    color: #000000;
 }
 
 .result-card p {
@@ -178,3 +203,221 @@ header p {
     gap: 5px;
 }
 
+/* garante que o card seja um contêiner flex vertical */
+.result-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;      /* distância entre os elementos */
+  padding: 0.75rem;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+}
+
+/* faz os links grudarem na direita do card */
+.links-container {
+  align-self: flex-end;   /* empurra para a borda direita */
+  display: flex;
+  gap: 10px;
+}
+
+.splegis-link, .portal-link {
+  text-decoration: none;
+  font-weight: 500;
+  color: #0053a6;         /* ajuste se tiver outra paleta */
+}
+
+.splegis-link:hover, .portal-link:hover {
+  text-decoration: underline;
+}
+
+/* Link para o PDF */
+.pdf-link {
+  margin-left: 10px;
+  flex-shrink: 0;
+  text-decoration: none;
+  font-weight: 500;
+  color: #d9534f;
+  font-size: 0.9rem;
+  white-space: nowrap;
+}
+
+.pdf-link:hover {
+  text-decoration: underline;
+}
+
+/* Ajuste para o título do card */
+.result-card h3 {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 10px;
+  color: #000000;
+  flex-wrap: nowrap;
+}
+  margin-bottom: 10px;
+  color: #000000;
+}
+
+/* INÍCIO - ESTILO PARA CHIPS CATEGORIZADOS */
+/* container */
+#filters-container {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0 0 16px;
+  padding: 12px;
+  background: #f7f8fa;
+  border-radius: 8px;
+  border: 1px solid #e1e8ed;
+}
+
+/* label "Filtros:" */
+#filters-container > span {
+  font-weight: 600;
+  color: #555;
+  margin-bottom: 8px;
+}
+
+/* Estilos para grupos de categorias */
+.category-group {
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  background-color: #f5f5f5;
+  border-radius: 4px;
+  margin-bottom: 8px;
+}
+
+.category-group:last-child {
+  margin-bottom: 0;
+}
+
+/* Estilo para o rótulo da categoria */
+.category-label {
+  font-weight: bold;
+  min-width: 80px;
+  margin-right: 12px;
+  color: #555;
+  font-size: 14px;
+}
+
+/* Container para os chips de uma categoria */
+.category-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  flex: 1;
+}
+
+/* Estilo para os chips (versão neutra/cinza) */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  background-color: #e0e0e0;
+  border-radius: 16px;
+  padding: 4px 12px;
+  font-size: 14px;
+  color: rgba(0, 0, 0, 0.87);
+  font-weight: normal;
+  box-shadow: none;
+  border: none;
+}
+
+/* Botão de fechar dentro do chip */
+.chip-close {
+  margin-left: 6px;
+  cursor: pointer;
+  opacity: 0.7;
+  font-size: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+}
+
+.chip-close:hover {
+  opacity: 1;
+  color: #d32f2f;
+}
+/* FIM - ESTILO PARA CHIPS CATEGORIZADOS */
+
+/* Botão "Carregar mais" */
+#load-more {
+    display: block;
+    width: 100%;
+    max-width: 300px;
+    margin: 20px auto;
+    padding: 12px 20px;
+    font-size: 1rem;
+    font-weight: bold;
+    color: #fff;
+    background-color: #007bff;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+#load-more:hover {
+    background-color: #0056b3;
+}
+
+#load-more:disabled {
+    background-color: #cccccc;
+    cursor: not-allowed;
+}
+
+/* Mensagem de fim dos resultados */
+#end-results-message {
+    text-align: center;
+    margin: 30px 0;
+    padding: 15px;
+    border-top: 1px solid #ddd;
+    color: #777;
+    font-style: italic;
+}
+
+/* Elemento sentinel para infinite scroll */
+#scroll-sentinel {
+    height: 10px;
+    margin-top: 10px;
+    visibility: hidden;
+}/* Separador "ou" entre chips */
+.chip-separator {
+  color: #777;
+  font-size: 13px;
+  font-style: italic;
+  margin: 0 4px;
+}
+/* Estilos para grupos de categorias */
+.category-group {
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  background-color: #f5f5f5;
+  border-radius: 4px;
+  margin-bottom: 8px;
+}
+
+.category-group:last-child {
+  margin-bottom: 0;
+}
+
+/* Estilo para o rótulo da categoria */
+.category-label {
+  font-weight: bold;
+  min-width: 80px;
+  margin-right: 12px;
+  color: #555;
+  font-size: 14px;
+}
+
+/* Container para os chips de uma categoria */
+.category-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  flex: 1;
+  align-items: center;
+}

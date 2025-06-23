@@ -34,6 +34,10 @@ public class CargaDadosService {
     // Injeta o novo serviço de IA
     @Autowired
     private EmbeddingService embeddingService;
+    
+    // Não precisamos mais construir links manualmente
+    @Autowired
+    private LinkBuilderService linkBuilderService;
 
     // Padrão para extrair TIPO, NÚMERO e ANO da primeira coluna (ex: "PL 680/2025")
     private final Pattern padraoProjeto = Pattern.compile("(\\w+)\\s(\\d+)/(\\d{4})");
@@ -96,12 +100,7 @@ public class CargaDadosService {
                         projeto.setAutorSearch(normalizarTexto(projeto.getAutor()));
                     }
 
-                    // Construir o link oficial
-                    String link = String.format(
-                            "https://splegisconsulta.saopaulo.sp.leg.br/Pesquisa/DetailsDetalhado?COD_MTRA_LEGL=1&COD_PCSS_CMSP=%d&ANO_PCSS_CMSP=%d",
-                            numero, ano
-                    );
-                    projeto.setLinkOficial(link);
+                    // Não é mais necessário armazenar o link oficial, agora é construído dinamicamente pelo LinkBuilderService
 
                     projetosParaSalvar.add(projeto);
 
@@ -185,12 +184,29 @@ public class CargaDadosService {
 
             // Cria o "super-texto" apenas para o lote atual
             List<String> textosParaEmbeddar = lote.stream()
-                    .map(p -> "Tipo: " + p.getTipo().name() + ". Autor: " + p.getAutor() + ". Ementa: " + p.getEmenta())
+                    .map(p -> {
+                        // Constrói o texto para embedding apenas com ementa e palavras-chave
+                        String ementa = "Ementa: " + (p.getEmenta() != null ? p.getEmenta() : "") + ". ";
+                        // Adiciona as palavras-chave, substituindo a barra por espaços para um texto mais natural
+                        String palavrasChave = "Palavras-chave: " + (p.getPalavrasChave() != null ? p.getPalavrasChave().replace("|", " ") : "") + ".";
+
+                        return ementa + palavrasChave;
+                    })
                     .collect(Collectors.toList());
 
             try {
+                System.out.println("Gerando embeddings para " + textosParaEmbeddar.size() + " textos no lote atual...");
+                // Monitoramento de memória
+                Runtime rt = Runtime.getRuntime();
+                long usedMemBefore = (rt.totalMemory() - rt.freeMemory()) / (1024 * 1024);
+                System.out.println("Memória em uso antes: " + usedMemBefore + " MB");
+                
                 // Gera os embeddings apenas para o lote atual
                 float[][] embeddingsDoLote = embeddingService.generateEmbeddings(textosParaEmbeddar);
+                
+                long usedMemAfter = (rt.totalMemory() - rt.freeMemory()) / (1024 * 1024);
+                System.out.println("Memória em uso depois: " + usedMemAfter + " MB (diferença: " + (usedMemAfter - usedMemBefore) + " MB)");
+                System.out.println("Embeddings gerados: " + embeddingsDoLote.length);
 
                 // Associa cada embedding de volta ao seu projeto original
                 for (int j = 0; j < lote.size(); j++) {
@@ -199,17 +215,21 @@ public class CargaDadosService {
                     projetosAtualizados.add(projeto);
                 }
 
+                // Salva os projetos do lote atual imediatamente
+                if (!projetosAtualizados.isEmpty()) {
+                    System.out.println("Salvando " + projetosAtualizados.size() + " projetos com embeddings no banco de dados...");
+                    projetoRepository.saveAll(projetosAtualizados);
+                    System.out.println("Lote salvo com sucesso.");
+                    // Limpa a lista para o próximo lote
+                    projetosAtualizados.clear();
+                }
+
             } catch (Exception e) {
-                System.err.println("Erro ao processar lote " + i + ". Pulando este lote.");
+                System.err.println("Erro ao processar lote " + ((i / BATCH_SIZE) + 1) + ": " + e.getMessage());
                 e.printStackTrace();
             }
         }
 
-        // Salva todos os projetos atualizados de uma vez só no final
-        if (!projetosAtualizados.isEmpty()) {
-            System.out.println("Salvando " + projetosAtualizados.size() + " projetos com embeddings no banco de dados...");
-            projetoRepository.saveAll(projetosAtualizados);
-            System.out.println("Embeddings salvos com sucesso.");
-        }
+        System.out.println("Processamento de embeddings concluído.");
     }
 }

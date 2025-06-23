@@ -1,0 +1,89 @@
+// Script de debug temporário para o LegislaSampa
+console.log("Script de debug carregado!");
+
+document.addEventListener('DOMContentLoaded', () => {
+    console.log("DOM carregado completamente!");
+
+    // Referências aos elementos
+    const searchForm = document.getElementById('search-form');
+    const searchInput = document.getElementById('search-input');
+    const resultsContainer = document.getElementById('results-container');
+    const loadingIndicator = document.getElementById('loading');
+    const errorMessageDiv = document.getElementById('error-message');
+
+    console.log("Elementos obtidos:", {
+        searchForm: !!searchForm,
+        searchInput: !!searchInput,
+        resultsContainer: !!resultsContainer,
+        loadingIndicator: !!loadingIndicator,
+        errorMessageDiv: !!errorMessageDiv
+    });
+
+    // Verificar se o formulário existe
+    if (!searchForm) {
+        console.error("ERRO CRÍTICO: Formulário não encontrado!");
+        return;
+    }
+
+    // Adicionar listener de evento ao formulário
+    searchForm.addEventListener('submit', (event) => {
+        event.preventDefault();
+        console.log("Formulário enviado!");
+        
+        const query = searchInput.value.trim();
+        console.log("Query:", query);
+        
+        if (query) {
+            // Mostrar loading
+            loadingIndicator.classList.remove('hidden');
+            errorMessageDiv.classList.add('hidden');
+            
+            // Fazer a busca
+            fetch(`/api/search?q=${encodeURIComponent(query)}&page=0&size=10`)
+                .then(response => {
+                    console.log("Resposta recebida:", response);
+                    if (!response.ok) {
+                        throw new Error(`Erro de rede: ${response.status}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    console.log("Dados recebidos:", data);
+                    
+                    // Limpar resultados anteriores
+                    resultsContainer.innerHTML = '';
+                    
+                    // Exibir resultados
+                    if (data.projetos && data.projetos.length > 0) {
+                        data.projetos.forEach(projeto => {
+                            const card = document.createElement('div');
+                            card.className = 'result-card';
+                            card.innerHTML = `
+                                <h3>${projeto.tipo || 'PROJETO'} ${projeto.numero}/${projeto.ano}</h3>
+                                <p class="meta">Autor(es): ${projeto.autor || 'Não informado'}</p>
+                                <p>${projeto.ementa}</p>
+                                <a class="splegis-link"
+                                   href="${projeto.linkOficial}"
+                                   target="_blank"
+                                   rel="noopener noreferrer">
+                                   Ver no SPLegis ↗
+                                </a>
+                            `;
+                            resultsContainer.appendChild(card);
+                        });
+                    } else {
+                        errorMessageDiv.textContent = 'Nenhum resultado encontrado.';
+                        errorMessageDiv.classList.remove('hidden');
+                    }
+                })
+                .catch(error => {
+                    console.error("Erro na busca:", error);
+                    errorMessageDiv.textContent = 'Ocorreu um erro ao realizar a busca.';
+                    errorMessageDiv.classList.remove('hidden');
+                })
+                .finally(() => {
+                    loadingIndicator.classList.add('hidden');
+                });
+        }
+    });
+});

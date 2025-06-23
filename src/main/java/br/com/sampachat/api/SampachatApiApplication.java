@@ -5,9 +5,11 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
-/*
+
 @SpringBootApplication
+@EnableScheduling
 public class SampachatApiApplication implements CommandLineRunner {
 
 	@Autowired
@@ -25,30 +27,12 @@ public class SampachatApiApplication implements CommandLineRunner {
 		System.out.println(">>> Tarefas de inicialização concluídas.");
 	}
 }
-*/
 
-@SpringBootApplication
-public class SampachatApiApplication {
-	public static void main(String[] args) {
-		SpringApplication.run(SampachatApiApplication.class, args);
-	}
-}
 
 //@SpringBootApplication
-//public class SampachatApiApplication implements CommandLineRunner {
-//
-//	@Autowired
-//	private CargaDadosService cargaDadosService;
-//
+//public class SampachatApiApplication {
 //	public static void main(String[] args) {
 //		SpringApplication.run(SampachatApiApplication.class, args);
 //	}
-//
-//	@Override
-//	public void run(String... args) throws Exception {
-//		System.out.println(">>> EXECUTANDO CARGA DE DADOS LOCALMENTE PARA O BANCO DE PRODUÇÃO <<<");
-//		cargaDadosService.carregarDadosDaPlanilha();
-//		cargaDadosService.gerarEmbeddings();
-//		System.out.println(">>> CARGA DE DADOS CONCLUÍDA. <<<");
-//	}
 //}
+//
