@@ -118,20 +118,6 @@ public class SearchServiceRefactored {
         try {
             logger.info("Iniciando busca híbrida. Query: '{}', Page: {}, Size: {}, Exclusions: {}", userQuery, page, size, excludedFilters);
             
-            // Depuração: Listar todos os autores se a query contiver "keit"
-            if (userQuery != null && userQuery.toLowerCase().contains("keit")) {
-                logger.info("===== DEPURAÇÃO PARA QUERY COM 'keit' =====");
-                logger.info("Total de autores na lista: {}", todosOsAutores.size());
-                todosOsAutores.stream()
-                    .filter(autor -> autor.toLowerCase().contains("keit"))
-                    .forEach(autor -> logger.info("Autor contendo 'keit': {}", autor));
-                
-                // Também verificar autores contendo apenas 'ke'
-                todosOsAutores.stream()
-                    .filter(autor -> autor.toLowerCase().contains("ke"))
-                    .limit(10) // Limitar para não inundar os logs
-                    .forEach(autor -> logger.info("Autor contendo 'ke': {}", autor));
-            }
 
             // 1. Extrai filtros (autor, ano, etc.) e a query semântica da busca do usuário.
             SearchFilter filter = extractFilters(userQuery, excludedFilters);

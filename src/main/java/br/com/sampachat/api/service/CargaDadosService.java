@@ -162,7 +162,7 @@ public class CargaDadosService {
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void gerarEmbeddings() {
         // Tamanho do lote que vamos processar por vez para não estourar a memória
-        final int BATCH_SIZE = 64;
+        final int BATCH_SIZE = 256;
 
         List<Projeto> projetosSemEmbedding = projetoRepository.findByEmbeddingIsNull();
 
