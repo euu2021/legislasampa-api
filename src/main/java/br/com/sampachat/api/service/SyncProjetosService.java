@@ -11,7 +11,6 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.PageRequest;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.transaction.annotation.Transactional;
@@ -151,9 +150,8 @@ public class SyncProjetosService {
     }
     
     /**
-     * Método agendado para executar a sincronização diariamente às 3 da manhã
+     * Método para executar a sincronização (anteriormente agendado, agora disparado via endpoint)
      */
-    @Scheduled(cron = "${app.sync.cron:0 5 7 * * ?}")
     public void scheduledSync() {
         logger.info("=== INÍCIO DA SINCRONIZAÇÃO AGENDADA ===");
         logger.info("Iniciando sincronização agendada de projetos às {}", 

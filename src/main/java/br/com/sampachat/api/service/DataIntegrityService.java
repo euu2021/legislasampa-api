@@ -8,7 +8,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.PageRequest;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -37,9 +36,8 @@ public class DataIntegrityService {
     private AlertService alertService;
     
     /**
-     * Executa verificações de integridade diariamente às 4:00 da manhã (após a sincronização)
+     * Executa verificações de integridade (anteriormente agendado, agora disparado via endpoint)
      */
-    @Scheduled(cron = "${app.integrity.cron:0 0 4 * * ?}")
     public void scheduledIntegrityCheck() {
         logger.info("=== INÍCIO DA VERIFICAÇÃO DE INTEGRIDADE AGENDADA ===");
         

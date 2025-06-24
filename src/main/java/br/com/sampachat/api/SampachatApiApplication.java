@@ -5,11 +5,10 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
-import org.springframework.scheduling.annotation.EnableScheduling;
 
 
 @SpringBootApplication
-@EnableScheduling
+// @EnableScheduling removido - não é mais necessário pois agora usamos triggers externos via cron-job.org
 public class SampachatApiApplication implements CommandLineRunner {
 
 	@Autowired

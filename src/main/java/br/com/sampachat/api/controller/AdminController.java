@@ -1,149 +1,130 @@
 package br.com.sampachat.api.controller;
 
-import br.com.sampachat.api.model.Projeto;
-import br.com.sampachat.api.model.TipoProposicao;
 import br.com.sampachat.api.service.DataIntegrityService;
 import br.com.sampachat.api.service.SyncProjetosService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDateTime;
 import java.util.Map;
 
 /**
- * Controlador para operações administrativas
+ * Controlador para ações administrativas, incluindo sincronização manual
  */
 @RestController
-@RequestMapping("/admin")
+@RequestMapping("/api/admin")
 public class AdminController {
-
+    
+    private static final Logger logger = LoggerFactory.getLogger(AdminController.class);
+    
     @Autowired
     private SyncProjetosService syncProjetosService;
     
     @Autowired
     private DataIntegrityService dataIntegrityService;
-
+    
+    @Value("${app.admin.secret-key:defaultKey}")
+    private String secretKey;
+    
     /**
-     * Endpoint para sincronizar projetos manualmente
+     * Endpoint para iniciar sincronização manual via cron-job.org ou outra fonte externa.
+     * Protegido por API key para evitar acesso não autorizado.
+     * 
+     * @param apiKey Chave de API fornecida no cabeçalho
+     * @return Resultado da sincronização
      */
-    @PostMapping("/sync-projetos")
-    public ResponseEntity<String> syncProjetos() {
+    @PostMapping("/sync")
+    public ResponseEntity<Map<String, Object>> triggerSync(
+            @RequestHeader(value = "X-API-Key", required = true) String apiKey) {
+        
+        // Verificar a chave de API para segurança
+        if (!secretKey.equals(apiKey)) {
+            logger.warn("Tentativa de sincronização com chave de API inválida");
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(Map.of("success", false, "message", "Chave de API inválida"));
+        }
+        
+        logger.info("Sincronização manual iniciada via endpoint REST em {}", LocalDateTime.now());
+        
         try {
+            // Executar a sincronização
             boolean success = syncProjetosService.syncAllTiposWithRetry();
             
+            // Retornar o resultado
             if (success) {
-                return ResponseEntity.ok("Sincronização de projetos concluída com sucesso.");
+                logger.info("Sincronização manual concluída com sucesso");
+                return ResponseEntity.ok(Map.of(
+                        "success", true, 
+                        "message", "Sincronização concluída com sucesso",
+                        "timestamp", LocalDateTime.now().toString()
+                ));
             } else {
-                return ResponseEntity.status(500)
-                        .body("Sincronização falhou após múltiplas tentativas. Verifique os logs para mais detalhes.");
+                logger.error("Sincronização manual falhou após tentativas de retry");
+                return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                        .body(Map.of(
+                                "success", false, 
+                                "message", "Sincronização falhou após tentativas de retry",
+                                "timestamp", LocalDateTime.now().toString()
+                        ));
             }
         } catch (Exception e) {
-            return ResponseEntity.internalServerError()
-                    .body("Erro ao iniciar sincronização: " + e.getMessage());
+            logger.error("Erro durante sincronização manual: {}", e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of(
+                            "success", false, 
+                            "message", "Erro durante sincronização: " + e.getMessage(),
+                            "timestamp", LocalDateTime.now().toString()
+                    ));
         }
     }
     
+    // O endpoint de health já existe em /health (Spring Actuator) e /monitor/health (MonitorController)
+    // Portanto, não é necessário duplicar essa funcionalidade aqui
+    
     /**
-     * Endpoint GET para facilitar testes de sincronização via navegador
-     * Considere remover este endpoint em produção e usar apenas o POST
+     * Endpoint para iniciar verificação de integridade manual via cron-job.org ou outra fonte externa.
+     * Protegido por API key para evitar acesso não autorizado.
+     * 
+     * @param apiKey Chave de API fornecida no cabeçalho
+     * @return Resultado da verificação de integridade
      */
-    @GetMapping("/sync-projetos-test")
-    public ResponseEntity<String> syncProjetosTest() {
+    @PostMapping("/integrity")
+    public ResponseEntity<Map<String, Object>> triggerIntegrityCheck(
+            @RequestHeader(value = "X-API-Key", required = true) String apiKey) {
+        
+        // Verificar a chave de API para segurança
+        if (!secretKey.equals(apiKey)) {
+            logger.warn("Tentativa de verificação de integridade com chave de API inválida");
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(Map.of("success", false, "message", "Chave de API inválida"));
+        }
+        
+        logger.info("Verificação de integridade manual iniciada via endpoint REST em {}", LocalDateTime.now());
+        
         try {
-            boolean success = syncProjetosService.syncAllTiposWithRetry();
+            // Executar a verificação de integridade
+            dataIntegrityService.scheduledIntegrityCheck();
             
-            if (success) {
-                return ResponseEntity.ok("Sincronização de projetos concluída com sucesso via teste GET.");
-            } else {
-                return ResponseEntity.status(500)
-                        .body("Sincronização falhou após múltiplas tentativas. Verifique os logs para mais detalhes.");
-            }
-        } catch (Exception e) {
-            return ResponseEntity.internalServerError()
-                    .body("Erro ao iniciar sincronização: " + e.getMessage());
-        }
-    }
-    
-    /**
-     * Endpoint GET para visualizar os projetos mais recentes de cada tipo
-     */
-    @GetMapping("/latest-projetos")
-    public ResponseEntity<String> getLatestProjetos() {
-        try {
-            Map<TipoProposicao, Projeto> latestProjetos = syncProjetosService.findLatestProjetosByTipo();
+            logger.info("Verificação de integridade manual concluída com sucesso");
+            return ResponseEntity.ok(Map.of(
+                    "success", true, 
+                    "message", "Verificação de integridade concluída com sucesso",
+                    "timestamp", LocalDateTime.now().toString()
+            ));
             
-            StringBuilder response = new StringBuilder("PROJETOS MAIS RECENTES POR TIPO:\n\n");
-            
-            for (Map.Entry<TipoProposicao, Projeto> entry : latestProjetos.entrySet()) {
-                TipoProposicao tipo = entry.getKey();
-                Projeto projeto = entry.getValue();
-                
-                if (projeto != null) {
-                    response.append(String.format("TIPO: %s | Nº: %d/%d | AUTOR: %s | EMENTA: %s\n\n", 
-                            tipo, 
-                            projeto.getNumero(), 
-                            projeto.getAno(),
-                            projeto.getAutor() != null ? projeto.getAutor() : "N/A",
-                            projeto.getEmenta() != null ? 
-                                    (projeto.getEmenta().length() > 100 ? 
-                                            projeto.getEmenta().substring(0, 97) + "..." : 
-                                            projeto.getEmenta()) : 
-                                    "N/A"));
-                } else {
-                    response.append(String.format("TIPO: %s | Nenhum projeto encontrado\n\n", tipo));
-                }
-            }
-            
-            return ResponseEntity.ok(response.toString());
         } catch (Exception e) {
-            return ResponseEntity.internalServerError()
-                    .body("Erro ao buscar projetos mais recentes: " + e.getMessage());
-        }
-    }
-    
-    /**
-     * Endpoint para verificar projetos faltantes
-     */
-    @GetMapping("/check-missing")
-    public ResponseEntity<String> checkMissingProjetos() {
-        try {
-            dataIntegrityService.checkMissingProjetos();
-            return ResponseEntity.ok("Verificação de projetos faltantes iniciada com sucesso.");
-        } catch (Exception e) {
-            return ResponseEntity.internalServerError()
-                    .body("Erro ao verificar projetos faltantes: " + e.getMessage());
-        }
-    }
-    
-    /**
-     * Endpoint para verificar projetos sem palavras-chave
-     */
-    @GetMapping("/check-palavras-chave")
-    public ResponseEntity<String> checkPalavrasChave() {
-        try {
-            dataIntegrityService.checkProjetosWithoutPalavrasChave();
-            return ResponseEntity.ok("Verificação de projetos sem palavras-chave iniciada com sucesso.");
-        } catch (Exception e) {
-            return ResponseEntity.internalServerError()
-                    .body("Erro ao verificar projetos sem palavras-chave: " + e.getMessage());
-        }
-    }
-    
-    /**
-     * Endpoint para executar todas as verificações de integridade
-     */
-    @GetMapping("/check-integrity")
-    public ResponseEntity<String> checkIntegrity() {
-        try {
-            dataIntegrityService.checkMissingProjetos();
-            dataIntegrityService.checkProjetosWithoutPalavrasChave();
-            return ResponseEntity.ok("Verificação de integridade iniciada com sucesso.");
-        } catch (Exception e) {
-            return ResponseEntity.internalServerError()
-                    .body("Erro ao verificar integridade: " + e.getMessage());
+            logger.error("Erro durante verificação de integridade manual: {}", e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of(
+                            "success", false, 
+                            "message", "Erro durante verificação de integridade: " + e.getMessage(),
+                            "timestamp", LocalDateTime.now().toString()
+                    ));
         }
     }
 }
