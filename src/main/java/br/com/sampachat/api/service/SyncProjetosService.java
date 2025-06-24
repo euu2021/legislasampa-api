@@ -16,9 +16,12 @@ import org.springframework.web.client.RestTemplate;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.text.Normalizer;
+import java.time.Duration;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
@@ -158,25 +161,105 @@ public class SyncProjetosService {
                 LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME));
         
         try {
-            boolean success = syncAllTiposWithRetry();
+            // Verificar e remover duplicatas antes da sincronização
+            removeDuplicateProjetosIfNeeded();
             
-            if (success) {
-                logger.info("=== SINCRONIZAÇÃO AGENDADA CONCLUÍDA COM SUCESSO ===");
-                // Registra o sucesso no SyncStatusService
-                syncStatusService.registerSyncSuccess();
-            } else {
-                logger.error("=== SINCRONIZAÇÃO AGENDADA FALHOU APÓS TENTATIVAS DE RETRY ===");
-                // Registra a falha no SyncStatusService
-                syncStatusService.registerSyncFailure("Falha após tentativas de retry");
-                // Envia alerta
-                alertService.sendSyncFailureAlert("Falha na sincronização agendada após tentativas de retry");
-            }
+            // Executar sincronização incremental em vez da sincronização completa
+            // Isso é mais eficiente e mais resiliente a falhas
+            syncProjetosSinceLastSync();
+            logger.info("=== SINCRONIZAÇÃO AGENDADA CONCLUÍDA COM SUCESSO ===");
         } catch (Exception e) {
             logger.error("=== ERRO FATAL NA SINCRONIZAÇÃO AGENDADA: {} ===", e.getMessage(), e);
             // Registra o erro no SyncStatusService
             syncStatusService.registerSyncFailure("Erro fatal: " + e.getMessage());
             // Envia alerta
             alertService.sendSyncFailureAlert("Erro fatal na sincronização: " + e.getMessage());
+        }
+    }
+    
+    /**
+     * Sincroniza projetos a partir da última data de sincronização
+     * Isso é útil para manter o banco atualizado sem precisar verificar todos os projetos
+     */
+    @Transactional
+    public void syncProjetosSinceLastSync() {
+        try {
+            logger.info("Iniciando sincronização incremental de projetos desde a última sincronização");
+            
+            // Recupera a data da última sincronização bem-sucedida
+            LocalDate lastSyncDate = syncStatusService.getLastSuccessfulSyncDate();
+            if (lastSyncDate == null) {
+                // Se não houver registro de sincronização anterior, usa uma data padrão (1 mês atrás)
+                lastSyncDate = LocalDate.now().minusMonths(1);
+                logger.info("Nenhuma sincronização anterior registrada. Usando data padrão: {}", lastSyncDate);
+            } else {
+                logger.info("Última sincronização bem-sucedida: {}", lastSyncDate);
+            }
+            
+            // Ano atual
+            int currentYear = Calendar.getInstance().get(Calendar.YEAR);
+            
+            // Sincroniza projetos de todos os tipos para o ano atual e, se necessário, ano anterior
+            for (Map.Entry<Integer, TipoProposicao> entry : TIPO_MAP.entrySet()) {
+                Integer spLegisTipo = entry.getKey();
+                TipoProposicao tipo = entry.getValue();
+                
+                // Sincroniza projetos do ano atual começando do número 1
+                // Isso garante que novos projetos sejam capturados
+                syncProjetosByTipoAndYear(spLegisTipo, tipo, 1, currentYear);
+                
+                // Se a última sincronização foi no ano anterior ou se estamos no início do ano,
+                // sincroniza também o ano anterior
+                if (lastSyncDate.getYear() < currentYear || Calendar.getInstance().get(Calendar.MONTH) < 3) {
+                    syncProjetosByTipoAndYear(spLegisTipo, tipo, 1, currentYear - 1);
+                }
+            }
+            
+            // Registra o sucesso da sincronização
+            syncStatusService.registerSyncSuccess();
+            logger.info("Sincronização incremental concluída com sucesso");
+            
+        } catch (Exception e) {
+            String mensagem = "Erro durante a sincronização incremental: " + e.getMessage();
+            logger.error(mensagem, e);
+            syncStatusService.registerSyncFailure(mensagem);
+            alertService.sendSyncFailureAlert(mensagem);
+            throw new SyncProjetosException(mensagem, e);
+        }
+    }
+    
+    /**
+     * Método para remover duplicatas antes da sincronização
+     * Isso garante que não haverá problemas com a restrição única
+     */
+    @Transactional
+    public void removeDuplicateProjetosIfNeeded() {
+        try {
+            logger.info("Verificando duplicatas na tabela projetos");
+            
+            // Conta o número de duplicatas
+            Integer duplicateCount = 0;
+            try {
+                duplicateCount = projetoRepository.countDuplicates();
+            } catch (Exception e) {
+                logger.error("Erro ao contar duplicatas: {}", e.getMessage());
+                return;
+            }
+            
+            if (duplicateCount > 0) {
+                logger.warn("Encontradas {} duplicatas na tabela projetos. Removendo...", duplicateCount);
+                
+                try {
+                    projetoRepository.removeDuplicates();
+                    logger.info("Duplicatas removidas com sucesso");
+                } catch (Exception e) {
+                    logger.error("Erro ao remover duplicatas: {}", e.getMessage());
+                }
+            } else {
+                logger.info("Nenhuma duplicata encontrada na tabela projetos");
+            }
+        } catch (Exception e) {
+            logger.error("Erro ao verificar/remover duplicatas: {}", e.getMessage());
         }
     }
     
@@ -244,34 +327,88 @@ public class SyncProjetosService {
         // Número máximo para busca (limite arbitrário grande o suficiente)
         int endNumero = 9999;
         
-        // Faz a busca em lotes de 1000 para não sobrecarregar a API
-        int batchSize = 1000;
+        // Faz a busca em lotes menores para melhor controle e resiliência
+        int batchSize = 500; // Tamanho reduzido para melhor performance
         
-        for (int i = startNumero; i <= endNumero; i += batchSize) {
-            int batchEnd = Math.min(i + batchSize - 1, endNumero);
-            
-            logger.info("Buscando lote de projetos {} a {} do tipo {} do ano {}", 
-                    i, batchEnd, tipo, year);
-            
-            List<SPLegisProjetoDTO> projetos = fetchProjetosFromSPLegis(spLegisTipo, i, batchEnd, year);
-            
-            if (projetos.isEmpty()) {
-                logger.info("Nenhum projeto encontrado no intervalo {} a {} do tipo {} do ano {}", 
+        try {
+            for (int i = startNumero; i <= endNumero; i += batchSize) {
+                int batchEnd = Math.min(i + batchSize - 1, endNumero);
+                
+                logger.info("Buscando lote de projetos {} a {} do tipo {} do ano {}", 
                         i, batchEnd, tipo, year);
-                // Se não há projetos neste lote, provavelmente chegamos ao fim dos projetos disponíveis
-                break;
+                
+                // Implementação de retry para a busca na API
+                List<SPLegisProjetoDTO> projetos = null;
+                int retryAttempts = 0;
+                boolean success = false;
+                
+                while (!success && retryAttempts < 3) {
+                    try {
+                        projetos = fetchProjetosFromSPLegis(spLegisTipo, i, batchEnd, year);
+                        success = true;
+                    } catch (Exception e) {
+                        retryAttempts++;
+                        logger.warn("Falha na tentativa {} de buscar projetos {}-{}/{}: {}", 
+                                retryAttempts, i, batchEnd, year, e.getMessage());
+                        
+                        if (retryAttempts < 3) {
+                            // Aguarda antes de tentar novamente (com backoff exponencial)
+                            try {
+                                Thread.sleep(2000 * retryAttempts);
+                            } catch (InterruptedException ie) {
+                                Thread.currentThread().interrupt();
+                            }
+                        }
+                    }
+                }
+                
+                if (!success) {
+                    logger.error("Falha em todas as tentativas de buscar projetos {}-{}/{}. Pulando este lote.", 
+                            i, batchEnd, year);
+                    continue; // Pula para o próximo lote
+                }
+                
+                if (projetos == null || projetos.isEmpty()) {
+                    logger.info("Nenhum projeto encontrado no intervalo {} a {} do tipo {} do ano {}", 
+                            i, batchEnd, tipo, year);
+                    // Se não há projetos neste lote, provavelmente chegamos ao fim dos projetos disponíveis
+                    break;
+                }
+                
+                logger.info("Encontrados {} projetos no intervalo {} a {} do tipo {} do ano {}", 
+                        projetos.size(), i, batchEnd, tipo, year);
+                
+                // Converte e salva os projetos com tratamento de exceção
+                try {
+                    saveNewProjetos(projetos, tipo);
+                } catch (Exception e) {
+                    logger.error("Erro ao salvar lote de projetos {}-{}/{}: {}", 
+                            i, batchEnd, year, e.getMessage(), e);
+                    
+                    // Notifica sobre o erro mas continua com o próximo lote
+                    alertService.sendSyncFailureAlert(
+                            String.format("Erro ao salvar lote %d-%d/%d do tipo %s: %s", 
+                                    i, batchEnd, year, tipo, e.getMessage()));
+                }
+                
+                // Se não chegamos ao fim do lote, provavelmente chegamos ao fim dos projetos disponíveis
+                if (projetos.size() < batchSize) {
+                    break;
+                }
+                
+                // Pausa entre lotes para não sobrecarregar o sistema
+                try {
+                    Thread.sleep(1000);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
             }
-            
-            logger.info("Encontrados {} projetos no intervalo {} a {} do tipo {} do ano {}", 
-                    projetos.size(), i, batchEnd, tipo, year);
-            
-            // Converte e salva os projetos
-            saveNewProjetos(projetos, tipo);
-            
-            // Se não chegamos ao fim do lote, provavelmente chegamos ao fim dos projetos disponíveis
-            if (projetos.size() < batchSize) {
-                break;
-            }
+        } catch (Exception e) {
+            String mensagem = String.format("Erro fatal ao sincronizar projetos do tipo %s do ano %d: %s", 
+                    tipo, year, e.getMessage());
+            logger.error(mensagem, e);
+            alertService.sendSyncFailureAlert(mensagem);
+            throw new SyncProjetosException(mensagem, e);
         }
     }
     
@@ -327,56 +464,130 @@ public class SyncProjetosService {
     }
     
     /**
-     * Converte e salva novos projetos
+     * Converte e salva novos projetos usando upsert para evitar conflitos
      */
     @Transactional
     public void saveNewProjetos(List<SPLegisProjetoDTO> projetosDTO, TipoProposicao tipo) {
-        List<Projeto> newProjetos = new ArrayList<>();
-        
-        for (SPLegisProjetoDTO dto : projetosDTO) {
-            // Verifica se o projeto já existe no banco
-            boolean exists = projetoRepository.existsByTipoAndNumeroAndAno(
-                    tipo, dto.getNumero(), dto.getAno());
-            
-            if (!exists) {
-                // Converter DTO para entidade
-                Projeto projeto = new Projeto();
-                projeto.setTipo(tipo);
-                projeto.setNumero(dto.getNumero());
-                projeto.setAno(dto.getAno());
-                projeto.setEmenta(dto.getEmenta());
-                
-                // Extrair autores
-                if (dto.getPromoventes() != null && !dto.getPromoventes().isEmpty()) {
-                    String autores = dto.getPromoventes().stream()
-                            .map(SPLegisProjetoDTO.ItemDTO::getTexto)
-                            .collect(Collectors.joining(", "));
-                    projeto.setAutor(autores);
-                    projeto.setAutorSearch(normalizarTexto(autores));
-                }
-                
-                // Extrair palavras-chave
-                if (dto.getAssuntos() != null && !dto.getAssuntos().isEmpty()) {
-                    String palavrasChave = dto.getAssuntos().stream()
-                            .map(SPLegisProjetoDTO.ItemDTO::getTexto)
-                            .collect(Collectors.joining("|"));
-                    projeto.setPalavrasChave(palavrasChave);
-                }
-                
-                // Os links agora são construídos dinamicamente pelo LinkBuilderService
-                
-                newProjetos.add(projeto);
-            }
+        if (projetosDTO.isEmpty()) {
+            logger.info("Nenhum projeto do tipo {} para processar", tipo);
+            return;
         }
         
-        if (!newProjetos.isEmpty()) {
-            logger.info("Salvando {} novos projetos do tipo {}", newProjetos.size(), tipo);
-            projetoRepository.saveAll(newProjetos);
+        logger.info("Processando {} projetos do tipo {}", projetosDTO.size(), tipo);
+        List<Projeto> projetosProcessados = new ArrayList<>();
+        
+        // Tamanho do lote para processamento de upsert
+        final int BATCH_SIZE = 50;
+        
+        try {
+            // Processa em lotes para melhorar a performance
+            for (int i = 0; i < projetosDTO.size(); i += BATCH_SIZE) {
+                int fim = Math.min(i + BATCH_SIZE, projetosDTO.size());
+                List<SPLegisProjetoDTO> loteDTO = projetosDTO.subList(i, fim);
+                
+                logger.info("Processando lote de upsert {}/{} (projetos {} a {})", 
+                        (i / BATCH_SIZE) + 1, 
+                        (int) Math.ceil((double) projetosDTO.size() / BATCH_SIZE), 
+                        i + 1, fim);
+                
+                List<Projeto> loteProjetos = new ArrayList<>();
+                
+                // Converte os DTOs para entidades
+                for (SPLegisProjetoDTO dto : loteDTO) {
+                    try {
+                        Projeto projeto = new Projeto();
+                        projeto.setTipo(tipo);
+                        projeto.setNumero(dto.getNumero());
+                        projeto.setAno(dto.getAno());
+                        projeto.setEmenta(dto.getEmenta());
+                        
+                        // Extrair autores
+                        if (dto.getPromoventes() != null && !dto.getPromoventes().isEmpty()) {
+                            String autores = dto.getPromoventes().stream()
+                                    .map(SPLegisProjetoDTO.ItemDTO::getTexto)
+                                    .collect(Collectors.joining(", "));
+                            projeto.setAutor(autores);
+                            projeto.setAutorSearch(normalizarTexto(autores));
+                        }
+                        
+                        // Extrair palavras-chave
+                        if (dto.getAssuntos() != null && !dto.getAssuntos().isEmpty()) {
+                            String palavrasChave = dto.getAssuntos().stream()
+                                    .map(SPLegisProjetoDTO.ItemDTO::getTexto)
+                                    .collect(Collectors.joining("|"));
+                            projeto.setPalavrasChave(palavrasChave);
+                        }
+                        
+                        loteProjetos.add(projeto);
+                    } catch (Exception e) {
+                        logger.error("Erro ao converter DTO para projeto {}/{} do tipo {}: {}", 
+                                dto.getNumero(), dto.getAno(), tipo, e.getMessage());
+                    }
+                }
+                
+                // Executa o upsert em lote
+                for (Projeto projeto : loteProjetos) {
+                    try {
+                        // Usar o método de upsert em lote
+                        projetoRepository.upsertProjetoBatch(
+                            projeto.getTipo().name(),
+                            projeto.getNumero(),
+                            projeto.getAno(),
+                            projeto.getAutor(),
+                            projeto.getAutorSearch(),
+                            projeto.getEmenta(),
+                            projeto.getPalavrasChave()
+                        );
+                        
+                        // Adiciona à lista de projetos processados
+                        projetosProcessados.add(projeto);
+                    } catch (Exception e) {
+                        logger.error("Erro ao executar upsert para projeto {}/{} do tipo {}: {}", 
+                                projeto.getNumero(), projeto.getAno(), projeto.getTipo(), e.getMessage());
+                    }
+                }
+            }
             
-            // Gerar embeddings para os novos projetos
-            generateEmbeddingsForNewProjetos(newProjetos);
-        } else {
-            logger.info("Nenhum projeto novo do tipo {} para salvar", tipo);
+            // Recupera os projetos que precisam gerar embeddings
+            // Precisa buscar novamente do banco, pois o upsert não retorna os IDs
+            List<Projeto> projetosParaEmbedding = new ArrayList<>();
+            
+            // Busca em lotes para não sobrecarregar o banco
+            for (int i = 0; i < projetosProcessados.size(); i += BATCH_SIZE) {
+                int fim = Math.min(i + BATCH_SIZE, projetosProcessados.size());
+                List<Projeto> lote = projetosProcessados.subList(i, fim);
+                
+                for (Projeto projeto : lote) {
+                    try {
+                        Projeto projetoCompleto = projetoRepository.findByTipoAndNumeroAndAno(
+                                projeto.getTipo(), projeto.getNumero(), projeto.getAno());
+                        
+                        if (projetoCompleto != null && projetoCompleto.getEmbedding() == null) {
+                            projetosParaEmbedding.add(projetoCompleto);
+                        }
+                    } catch (Exception e) {
+                        logger.error("Erro ao buscar projeto para embedding {}/{} do tipo {}: {}", 
+                                projeto.getNumero(), projeto.getAno(), projeto.getTipo(), e.getMessage());
+                    }
+                }
+            }
+            
+            // Logs informativos
+            logger.info("Processamento concluído para o tipo {}: {} projetos processados", 
+                    tipo, projetosProcessados.size());
+            
+            // Gerar embeddings apenas para projetos que precisam
+            if (!projetosParaEmbedding.isEmpty()) {
+                logger.info("Gerando embeddings para {} projetos do tipo {}", 
+                        projetosParaEmbedding.size(), tipo);
+                generateEmbeddingsForNewProjetos(projetosParaEmbedding);
+            }
+            
+        } catch (Exception e) {
+            String mensagem = String.format("Erro durante o processamento de projetos do tipo %s: %s", 
+                    tipo, e.getMessage());
+            logger.error(mensagem, e);
+            throw new SyncProjetosException(mensagem, e);
         }
     }
     

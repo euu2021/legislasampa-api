@@ -1,0 +1,3 @@
+-- Esta migração foi marcada como aplicada no Flyway, mas falhou.
+-- A lógica foi movida e melhorada na migração V4.
+-- Este arquivo está vazio para manter a compatibilidade com o histórico do Flyway.

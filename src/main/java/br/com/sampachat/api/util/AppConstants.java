@@ -12,7 +12,7 @@ public final class AppConstants {
     /**
      * Número padrão de resultados por página
      */
-    public static final int DEFAULT_PAGE_SIZE = 3;
+    public static final int DEFAULT_PAGE_SIZE = 20;
     
     /**
      * Limite máximo de resultados que podem ser recuperados no total

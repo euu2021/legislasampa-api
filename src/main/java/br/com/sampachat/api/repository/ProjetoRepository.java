@@ -4,9 +4,11 @@ import br.com.sampachat.api.model.Projeto;
 import br.com.sampachat.api.model.TipoProposicao;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
@@ -55,4 +57,67 @@ public interface ProjetoRepository extends JpaRepository<Projeto, Integer> {
     // Encontra projetos sem palavras-chave
     @Query("SELECT p FROM Projeto p WHERE p.palavrasChave IS NULL OR p.palavrasChave = ''")
     List<Projeto> findProjetosWithoutPalavrasChave(Pageable pageable);
+    
+    // Método Upsert (INSERT ... ON CONFLICT ... DO UPDATE) para evitar conflitos de ID
+    @Modifying
+    @Transactional
+    @Query(value = 
+        "INSERT INTO projetos (tipo, numero, ano, autor, autor_search, ementa, palavras_chave) " +
+        "VALUES (CAST(:#{#projeto.tipo.name()} AS tp_proposicao), :#{#projeto.numero}, :#{#projeto.ano}, " +
+        ":#{#projeto.autor}, :#{#projeto.autorSearch}, :#{#projeto.ementa}, :#{#projeto.palavrasChave}) " +
+        "ON CONFLICT (tipo, numero, ano) DO UPDATE SET " +
+        "autor = EXCLUDED.autor, " +
+        "autor_search = EXCLUDED.autor_search, " +
+        "ementa = EXCLUDED.ementa, " +
+        "palavras_chave = EXCLUDED.palavras_chave " +
+        "RETURNING id", nativeQuery = true)
+    Integer upsertProjeto(@Param("projeto") Projeto projeto);
+    
+    // Método Upsert em lote para melhor performance
+    @Modifying
+    @Transactional
+    @Query(value = 
+        "INSERT INTO projetos (tipo, numero, ano, autor, autor_search, ementa, palavras_chave) " +
+        "VALUES (CAST(:tipo AS tp_proposicao), :numero, :ano, :autor, :autorSearch, :ementa, :palavrasChave) " +
+        "ON CONFLICT (tipo, numero, ano) DO UPDATE SET " +
+        "autor = EXCLUDED.autor, " +
+        "autor_search = EXCLUDED.autor_search, " +
+        "ementa = EXCLUDED.ementa, " +
+        "palavras_chave = EXCLUDED.palavras_chave", 
+        nativeQuery = true)
+    void upsertProjetoBatch(
+        @Param("tipo") String tipo,
+        @Param("numero") Integer numero,
+        @Param("ano") Integer ano,
+        @Param("autor") String autor,
+        @Param("autorSearch") String autorSearch,
+        @Param("ementa") String ementa,
+        @Param("palavrasChave") String palavrasChave);
+    
+    // Busca um projeto por tipo, número e ano
+    Projeto findByTipoAndNumeroAndAno(TipoProposicao tipo, Integer numero, Integer ano);
+    
+    // Conta o número de registros duplicados
+    @Query(value = 
+        "SELECT COUNT(*) FROM (" +
+        "   SELECT tipo, numero, ano, COUNT(*) " +
+        "   FROM projetos " +
+        "   GROUP BY tipo, numero, ano " +
+        "   HAVING COUNT(*) > 1" +
+        ") AS duplicates", nativeQuery = true)
+    Integer countDuplicates();
+    
+    // Remove duplicatas mantendo apenas o registro com menor ID para cada combinação tipo/numero/ano
+    @Modifying
+    @Transactional
+    @Query(value = 
+        "DELETE FROM projetos WHERE id IN (" +
+        "   SELECT id FROM (" +
+        "       SELECT id, " +
+        "           ROW_NUMBER() OVER (PARTITION BY tipo, numero, ano ORDER BY id) as rn " +
+        "       FROM projetos" +
+        "   ) t " +
+        "   WHERE t.rn > 1" +
+        ")", nativeQuery = true)
+    void removeDuplicates();
 }

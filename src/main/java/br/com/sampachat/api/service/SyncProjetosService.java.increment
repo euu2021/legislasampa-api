@@ -1,0 +1,50 @@
+    /**
+     * Sincroniza projetos a partir da última data de sincronização
+     * Isso é útil para manter o banco atualizado sem precisar verificar todos os projetos
+     */
+    @Transactional
+    public void syncProjetosSinceLastSync() {
+        try {
+            logger.info("Iniciando sincronização incremental de projetos desde a última sincronização");
+            
+            // Recupera a data da última sincronização bem-sucedida
+            LocalDate lastSyncDate = syncStatusService.getLastSuccessfulSyncDate();
+            if (lastSyncDate == null) {
+                // Se não houver registro de sincronização anterior, usa uma data padrão (1 mês atrás)
+                lastSyncDate = LocalDate.now().minusMonths(1);
+                logger.info("Nenhuma sincronização anterior registrada. Usando data padrão: {}", lastSyncDate);
+            } else {
+                logger.info("Última sincronização bem-sucedida: {}", lastSyncDate);
+            }
+            
+            // Ano atual
+            int currentYear = Calendar.getInstance().get(Calendar.YEAR);
+            
+            // Sincroniza projetos de todos os tipos para o ano atual e, se necessário, ano anterior
+            for (Map.Entry<Integer, TipoProposicao> entry : TIPO_MAP.entrySet()) {
+                Integer spLegisTipo = entry.getKey();
+                TipoProposicao tipo = entry.getValue();
+                
+                // Sincroniza projetos do ano atual começando do número 1
+                // Isso garante que novos projetos sejam capturados
+                syncProjetosByTipoAndYear(spLegisTipo, tipo, 1, currentYear);
+                
+                // Se a última sincronização foi no ano anterior ou se estamos no início do ano,
+                // sincroniza também o ano anterior
+                if (lastSyncDate.getYear() < currentYear || Calendar.getInstance().get(Calendar.MONTH) < 3) {
+                    syncProjetosByTipoAndYear(spLegisTipo, tipo, 1, currentYear - 1);
+                }
+            }
+            
+            // Registra o sucesso da sincronização
+            syncStatusService.registerSyncSuccess();
+            logger.info("Sincronização incremental concluída com sucesso");
+            
+        } catch (Exception e) {
+            String mensagem = "Erro durante a sincronização incremental: " + e.getMessage();
+            logger.error(mensagem, e);
+            syncStatusService.registerSyncFailure(mensagem);
+            alertService.sendSyncFailureAlert(mensagem);
+            throw new SyncProjetosException(mensagem, e);
+        }
+    }

@@ -1,0 +1,57 @@
+    /**
+     * Método para remover duplicatas antes da sincronização
+     * Isso garante que não haverá problemas com a restrição única
+     */
+    @Transactional
+    public void removeDuplicateProjetosIfNeeded() {
+        try {
+            logger.info("Verificando duplicatas na tabela projetos");
+            
+            // Conta o número de duplicatas
+            String countDuplicatesQuery = 
+                "SELECT COUNT(*) FROM (" +
+                "   SELECT tipo, numero, ano, COUNT(*) " +
+                "   FROM projetos " +
+                "   GROUP BY tipo, numero, ano " +
+                "   HAVING COUNT(*) > 1" +
+                ") AS duplicates";
+            
+            Integer duplicateCount = 0;
+            try {
+                // Execute a native query using JdbcTemplate or EntityManager
+                // Este é apenas um exemplo de como você pode fazer isso
+                // Você pode precisar ajustar isso com base em como seu serviço acessa o banco de dados
+                duplicateCount = projetoRepository.countDuplicates();
+            } catch (Exception e) {
+                logger.error("Erro ao contar duplicatas: {}", e.getMessage());
+                return;
+            }
+            
+            if (duplicateCount > 0) {
+                logger.warn("Encontradas {} duplicatas na tabela projetos. Removendo...", duplicateCount);
+                
+                // Remove duplicatas mantendo apenas o registro com menor ID para cada combinação tipo/numero/ano
+                String removeDuplicatesQuery = 
+                    "DELETE FROM projetos WHERE id IN (" +
+                    "   SELECT id FROM (" +
+                    "       SELECT id, " +
+                    "           ROW_NUMBER() OVER (PARTITION BY tipo, numero, ano ORDER BY id) as rn " +
+                    "       FROM projetos" +
+                    "   ) t " +
+                    "   WHERE t.rn > 1" +
+                    ")";
+                
+                try {
+                    // Execute a native query using JdbcTemplate or EntityManager
+                    projetoRepository.removeDuplicates();
+                    logger.info("Duplicatas removidas com sucesso");
+                } catch (Exception e) {
+                    logger.error("Erro ao remover duplicatas: {}", e.getMessage());
+                }
+            } else {
+                logger.info("Nenhuma duplicata encontrada na tabela projetos");
+            }
+        } catch (Exception e) {
+            logger.error("Erro ao verificar/remover duplicatas: {}", e.getMessage());
+        }
+    }

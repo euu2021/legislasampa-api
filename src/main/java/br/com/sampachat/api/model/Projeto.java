@@ -19,7 +19,12 @@ import jakarta.persistence.Convert;
 @Getter
 @Setter
 @Entity
-@Table(name = "projetos") // Liga esta classe à tabela "projetos"
+@Table(
+    name = "projetos", // Liga esta classe à tabela "projetos"
+    uniqueConstraints = {
+        @UniqueConstraint(columnNames = {"tipo", "numero", "ano"})
+    }
+)
 public class Projeto {
 
     @Id

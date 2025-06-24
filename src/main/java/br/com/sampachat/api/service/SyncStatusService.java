@@ -4,6 +4,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -106,6 +107,17 @@ public class SyncStatusService {
      */
     public List<SyncStatusEntry> getSyncHistory() {
         return new ArrayList<>(syncHistory);
+    }
+    
+    /**
+     * Retorna a data da última sincronização bem-sucedida
+     * @return LocalDate da última sincronização bem-sucedida ou null se não houver
+     */
+    public java.time.LocalDate getLastSuccessfulSyncDate() {
+        if (lastSuccessfulSync != null) {
+            return lastSuccessfulSync.toLocalDate();
+        }
+        return null;
     }
     
     /**
