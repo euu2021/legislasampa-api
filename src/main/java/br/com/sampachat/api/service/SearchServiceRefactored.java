@@ -103,12 +103,6 @@ public class SearchServiceRefactored {
             .map(matcher -> matcher.group(1).toLowerCase())
             .collect(Collectors.toSet());
         
-        logger.info("SearchService inicializado com {} autores e {} partidos.", todosOsAutores.size(), todosOsPartidos.size());
-        
-        // Log para depuração - listar autores que contêm "keit"
-        todosOsAutores.stream()
-            .filter(autor -> normalizeText(autor).contains("keit"))
-            .forEach(autor -> logger.info("Autor contendo 'keit' encontrado: {}", autor));
     }
 
     /**

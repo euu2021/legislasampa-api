@@ -153,7 +153,7 @@ public class SyncProjetosService {
     /**
      * Método agendado para executar a sincronização diariamente às 3 da manhã
      */
-    @Scheduled(cron = "${app.sync.cron:0 0 3 * * ?}")
+    @Scheduled(cron = "${app.sync.cron:0 5 7 * * ?}")
     public void scheduledSync() {
         logger.info("=== INÍCIO DA SINCRONIZAÇÃO AGENDADA ===");
         logger.info("Iniciando sincronização agendada de projetos às {}", 
