@@ -20,9 +20,9 @@ public class SampachatApiApplication implements CommandLineRunner {
 
 	@Override
 	public void run(String... args) throws Exception {
-		System.out.println(">>> SampaChat API iniciada. Verificando necessidade de carga de dados...");
-		cargaDadosService.carregarDadosDaPlanilha(); // Primeiro, carrega da planilha
-		cargaDadosService.gerarEmbeddings();      // Depois, gera os embeddings
+//		System.out.println(">>> SampaChat API iniciada. Verificando necessidade de carga de dados...");
+//		cargaDadosService.carregarDadosDaPlanilha(); // Primeiro, carrega da planilha
+//		cargaDadosService.gerarEmbeddings();      // Depois, gera os embeddings
 		System.out.println(">>> Tarefas de inicialização concluídas.");
 	}
 }
