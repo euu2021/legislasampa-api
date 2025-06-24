@@ -17,12 +17,9 @@ import org.springframework.web.client.RestTemplate;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.text.Normalizer;
-import java.time.Duration;
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
@@ -65,65 +62,6 @@ public class SyncProjetosService {
     @Autowired
     private AlertService alertService;
     
-    @Value("${app.sync.retry.max-attempts:3}")
-    private int maxRetryAttempts;
-    
-    @Value("${app.sync.retry.delay-ms:30000}")
-    private long retryDelayMs;
-
-    /**
-     * Sincroniza projetos de todos os tipos com mecanismo de retry
-     * @return true se a sincronização foi bem-sucedida, false caso contrário
-     */
-    public boolean syncAllTiposWithRetry() {
-        int attempts = 0;
-        boolean success = false;
-        Exception lastException = null;
-        
-        while (!success && attempts < maxRetryAttempts) {
-            attempts++;
-            
-            try {
-                if (attempts > 1) {
-                    logger.info("Tentativa {} de sincronização após falha anterior", attempts);
-                    
-                    // Aguarda antes de tentar novamente
-                    try {
-                        Thread.sleep(retryDelayMs);
-                    } catch (InterruptedException ie) {
-                        Thread.currentThread().interrupt();
-                        logger.warn("Thread interrompida durante espera para retry");
-                    }
-                }
-                
-                // Realiza a sincronização
-                syncAllTipos();
-                
-                // Se chegou aqui, a sincronização foi bem-sucedida
-                success = true;
-                logger.info("Sincronização bem-sucedida na tentativa {}", attempts);
-                
-            } catch (Exception e) {
-                lastException = e;
-                logger.error("Falha na tentativa {} de sincronização: {}", attempts, e.getMessage(), e);
-                
-                if (attempts < maxRetryAttempts) {
-                    logger.info("Tentando novamente em {} ms", retryDelayMs);
-                }
-            }
-        }
-        
-        // Atualiza o contador de tentativas no último registro de status
-        syncStatusService.updateLastEntryRetryCount(attempts - 1);
-        
-        if (!success && lastException != null) {
-            logger.error("Todas as {} tentativas de sincronização falharam. Último erro: {}", 
-                    maxRetryAttempts, lastException.getMessage());
-        }
-        
-        return success;
-    }
-    
     /**
      * Busca os projetos mais recentes de cada tipo no banco de dados
      */
@@ -135,7 +73,7 @@ public class SyncProjetosService {
                 // Usando o método JPQL ao invés da query nativa para evitar problemas de casting
                 List<Projeto> projetos = projetoRepository.findLatestByTipoJpql(
                         tipo, 
-                        org.springframework.data.domain.PageRequest.of(0, 1)
+                        PageRequest.of(0, 1)
                 );
                 
                 if (!projetos.isEmpty()) {
@@ -331,155 +269,6 @@ public class SyncProjetosService {
             }
         } catch (Exception e) {
             logger.error("Erro ao verificar/remover duplicatas: {}", e.getMessage());
-        }
-    }
-    
-    /**
-     * Sincroniza projetos de todos os tipos
-     */
-    @Transactional
-    public void syncAllTipos() {
-        Map<TipoProposicao, Projeto> latestProjetos = findLatestProjetosByTipo();
-        
-        // Exibe informações detalhadas de cada projeto mais recente por tipo
-        logger.info("=== PROJETOS MAIS RECENTES POR TIPO ===");
-        for (Map.Entry<TipoProposicao, Projeto> entry : latestProjetos.entrySet()) {
-            TipoProposicao tipo = entry.getKey();
-            Projeto projeto = entry.getValue();
-            
-            if (projeto != null) {
-                logger.info("TIPO: {} | Nº: {}/{} | AUTOR: {} | EMENTA: {}", 
-                        tipo, 
-                        projeto.getNumero(), 
-                        projeto.getAno(),
-                        projeto.getAutor() != null ? projeto.getAutor() : "N/A",
-                        projeto.getEmenta() != null ? 
-                                (projeto.getEmenta().length() > 100 ? 
-                                        projeto.getEmenta().substring(0, 97) + "..." : 
-                                        projeto.getEmenta()) : 
-                                "N/A");
-            } else {
-                logger.info("TIPO: {} | Nenhum projeto encontrado", tipo);
-            }
-        }
-        logger.info("=======================================");
-        
-        // Ano atual
-        int currentYear = Calendar.getInstance().get(Calendar.YEAR);
-        
-        for (Map.Entry<Integer, TipoProposicao> entry : TIPO_MAP.entrySet()) {
-            Integer spLegisTipo = entry.getKey();
-            TipoProposicao tipo = entry.getValue();
-            
-            Projeto latestProjeto = latestProjetos.get(tipo);
-            
-            // Se não houver projetos desse tipo, busca a partir do número 1
-            int startNumero = latestProjeto != null ? latestProjeto.getNumero() + 1 : 1;
-            
-            // Sincroniza projetos do ano atual
-            syncProjetosByTipoAndYear(spLegisTipo, tipo, startNumero, currentYear);
-            
-            // Se estamos no início do ano (Janeiro-Março), sincroniza também o ano anterior
-            // para garantir que pegamos projetos de fim de ano
-            if (Calendar.getInstance().get(Calendar.MONTH) < 3) {
-                syncProjetosByTipoAndYear(spLegisTipo, tipo, 1, currentYear - 1);
-            }
-        }
-    }
-    
-    /**
-     * Sincroniza projetos de um tipo específico e ano
-     */
-    @Transactional
-    public void syncProjetosByTipoAndYear(Integer spLegisTipo, TipoProposicao tipo, int startNumero, int year) {
-        logger.info("Sincronizando projetos do tipo {} a partir do número {} do ano {}", 
-                tipo, startNumero, year);
-        
-        // Número máximo para busca (limite arbitrário grande o suficiente)
-        int endNumero = 9999;
-        
-        // Faz a busca em lotes menores para melhor controle e resiliência
-        int batchSize = 500; // Tamanho reduzido para melhor performance
-        
-        try {
-            for (int i = startNumero; i <= endNumero; i += batchSize) {
-                int batchEnd = Math.min(i + batchSize - 1, endNumero);
-                
-                logger.info("Buscando lote de projetos {} a {} do tipo {} do ano {}", 
-                        i, batchEnd, tipo, year);
-                
-                // Implementação de retry para a busca na API
-                List<SPLegisProjetoDTO> projetos = null;
-                int retryAttempts = 0;
-                boolean success = false;
-                
-                while (!success && retryAttempts < 3) {
-                    try {
-                        projetos = fetchProjetosFromSPLegis(spLegisTipo, i, batchEnd, year);
-                        success = true;
-                    } catch (Exception e) {
-                        retryAttempts++;
-                        logger.warn("Falha na tentativa {} de buscar projetos {}-{}/{}: {}", 
-                                retryAttempts, i, batchEnd, year, e.getMessage());
-                        
-                        if (retryAttempts < 3) {
-                            // Aguarda antes de tentar novamente (com backoff exponencial)
-                            try {
-                                Thread.sleep(2000 * retryAttempts);
-                            } catch (InterruptedException ie) {
-                                Thread.currentThread().interrupt();
-                            }
-                        }
-                    }
-                }
-                
-                if (!success) {
-                    logger.error("Falha em todas as tentativas de buscar projetos {}-{}/{}. Pulando este lote.", 
-                            i, batchEnd, year);
-                    continue; // Pula para o próximo lote
-                }
-                
-                if (projetos == null || projetos.isEmpty()) {
-                    logger.info("Nenhum projeto encontrado no intervalo {} a {} do tipo {} do ano {}", 
-                            i, batchEnd, tipo, year);
-                    // Se não há projetos neste lote, provavelmente chegamos ao fim dos projetos disponíveis
-                    break;
-                }
-                
-                logger.info("Encontrados {} projetos no intervalo {} a {} do tipo {} do ano {}", 
-                        projetos.size(), i, batchEnd, tipo, year);
-                
-                // Converte e salva os projetos com tratamento de exceção
-                try {
-                    saveNewProjetos(projetos, tipo);
-                } catch (Exception e) {
-                    logger.error("Erro ao salvar lote de projetos {}-{}/{}: {}", 
-                            i, batchEnd, year, e.getMessage(), e);
-                    
-                    // Notifica sobre o erro mas continua com o próximo lote
-                    alertService.sendSyncFailureAlert(
-                            String.format("Erro ao salvar lote %d-%d/%d do tipo %s: %s", 
-                                    i, batchEnd, year, tipo, e.getMessage()));
-                }
-                
-                // Se não chegamos ao fim do lote, provavelmente chegamos ao fim dos projetos disponíveis
-                if (projetos.size() < batchSize) {
-                    break;
-                }
-                
-                // Pausa entre lotes para não sobrecarregar o sistema
-                try {
-                    Thread.sleep(1000);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                }
-            }
-        } catch (Exception e) {
-            String mensagem = String.format("Erro fatal ao sincronizar projetos do tipo %s do ano %d: %s", 
-                    tipo, year, e.getMessage());
-            logger.error(mensagem, e);
-            alertService.sendSyncFailureAlert(mensagem);
-            throw new SyncProjetosException(mensagem, e);
         }
     }
     
