@@ -34,9 +34,10 @@ public class AdminController {
     /**
      * Endpoint para iniciar sincronização manual via cron-job.org ou outra fonte externa.
      * Protegido por API key para evitar acesso não autorizado.
+     * Responde imediatamente enquanto processa em segundo plano.
      * 
      * @param apiKey Chave de API fornecida no cabeçalho
-     * @return Resultado da sincronização
+     * @return Confirmação de que a sincronização foi iniciada
      */
     @PostMapping("/sync")
     public ResponseEntity<Map<String, Object>> triggerSync(
@@ -52,32 +53,21 @@ public class AdminController {
         logger.info("Sincronização manual iniciada via endpoint REST em {}", LocalDateTime.now());
         
         try {
-            // Executar a sincronização
-            boolean success = syncProjetosService.syncAllTiposWithRetry();
+            // Inicia o processo de sincronização em segundo plano e retorna imediatamente
+            syncProjetosService.startAsyncSync();
             
-            // Retornar o resultado
-            if (success) {
-                logger.info("Sincronização manual concluída com sucesso");
-                return ResponseEntity.ok(Map.of(
-                        "success", true, 
-                        "message", "Sincronização concluída com sucesso",
-                        "timestamp", LocalDateTime.now().toString()
-                ));
-            } else {
-                logger.error("Sincronização manual falhou após tentativas de retry");
-                return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                        .body(Map.of(
-                                "success", false, 
-                                "message", "Sincronização falhou após tentativas de retry",
-                                "timestamp", LocalDateTime.now().toString()
-                        ));
-            }
+            // Retorna sucesso imediatamente, sem esperar o resultado
+            return ResponseEntity.ok(Map.of(
+                    "success", true, 
+                    "message", "Sincronização iniciada com sucesso em segundo plano",
+                    "timestamp", LocalDateTime.now().toString()
+            ));
         } catch (Exception e) {
-            logger.error("Erro durante sincronização manual: {}", e.getMessage(), e);
+            logger.error("Erro ao iniciar sincronização: {}", e.getMessage(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(Map.of(
                             "success", false, 
-                            "message", "Erro durante sincronização: " + e.getMessage(),
+                            "message", "Erro ao iniciar sincronização: " + e.getMessage(),
                             "timestamp", LocalDateTime.now().toString()
                     ));
         }

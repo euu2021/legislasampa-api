@@ -11,6 +11,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.transaction.annotation.Transactional;
@@ -150,6 +151,44 @@ public class SyncProjetosService {
         }
         
         return latestProjetos;
+    }
+    
+    /**
+     * Inicia uma sincronização assíncrona em segundo plano
+     * Este método retorna imediatamente enquanto a sincronização ocorre em uma thread separada
+     */
+    public void startAsyncSync() {
+        logger.info("Iniciando sincronização assíncrona");
+        
+        // Executa a sincronização em uma thread separada
+        asyncSync();
+    }
+    
+    /**
+     * Método assíncrono que executa a sincronização em segundo plano
+     * A anotação @Async faz com que este método seja executado em uma thread separada
+     */
+    @Async
+    public void asyncSync() {
+        logger.info("=== INÍCIO DA SINCRONIZAÇÃO ASSÍNCRONA ===");
+        logger.info("Sincronização assíncrona iniciada em {}", 
+                LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME));
+        
+        try {
+            // Verificar e remover duplicatas antes da sincronização
+            removeDuplicateProjetosIfNeeded();
+            
+            // Executar sincronização incremental em vez da sincronização completa
+            syncProjetosSinceLastSync();
+            
+            logger.info("=== SINCRONIZAÇÃO ASSÍNCRONA CONCLUÍDA COM SUCESSO ===");
+        } catch (Exception e) {
+            logger.error("=== ERRO FATAL NA SINCRONIZAÇÃO ASSÍNCRONA: {} ===", e.getMessage(), e);
+            // Registra o erro no SyncStatusService
+            syncStatusService.registerSyncFailure("Erro fatal: " + e.getMessage());
+            // Envia alerta
+            alertService.sendSyncFailureAlert("Erro fatal na sincronização assíncrona: " + e.getMessage());
+        }
     }
     
     /**
