@@ -556,6 +556,7 @@ public class SearchServiceRefactored {
         // Ignoramos palavras muito curtas ou stopwords.
         List<String> queryTokens = Arrays.stream(queryNormalizada.split("\\s+"))
                 .filter(token -> token.length() > 2 && !STOPWORDS.contains(token))
+                .filter(token -> !TERMOS_TEMATICOS.contains(token))
                 .distinct()
                 .toList();
 
