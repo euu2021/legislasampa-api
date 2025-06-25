@@ -18,6 +18,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.text.Normalizer;
 import java.time.Year;
@@ -25,6 +26,7 @@ import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import java.io.IOException;
 
 @Service
 public class SearchServiceRefactored {
@@ -209,12 +211,17 @@ public class SearchServiceRefactored {
 
         // Prepara os termos da query para busca e ranking
         List<String> queryTerms = getQueryTermsForSearch(filter);
-        
+
+        long startExact = System.currentTimeMillis();
         // 1. Busca por correspondências exatas dos termos da query.
         List<Projeto> exactMatches = findExactMatches(relevantIds, queryTerms);
         logger.info("Encontrados {} matches exatos.", exactMatches.size());
+        long timeExact = System.currentTimeMillis() - startExact;
+        logger.info("⏱️ BUSCA EXATA: {} ms | Encontrados {} resultados | IDs filtrados: {}",
+                timeExact, exactMatches.size(), relevantIds.size());
 
         // 2. Se necessário, complementa com busca semântica.
+        long startSemantic = System.currentTimeMillis();
         List<Projeto> semanticMatches = new ArrayList<>();
         if (exactMatches.size() < AppConstants.MAX_RESULTS_LIMIT) {
             List<Integer> exactMatchIds = exactMatches.stream().map(Projeto::getId).toList();
@@ -222,6 +229,9 @@ public class SearchServiceRefactored {
             semanticMatches = findSemanticMatches(relevantIds, filter.getSemanticQuery(), exactMatchIds, limit);
             logger.info("Encontrados {} matches semânticos.", semanticMatches.size());
         }
+        long timeSemantic = System.currentTimeMillis() - startSemantic;
+        logger.info("⏱️ BUSCA SEMÂNTICA: {} ms | Encontrados {} resultados",
+                timeSemantic, semanticMatches.size());
 
         // 3. Combina e ordena os resultados (exatos primeiro, depois semânticos, ambos por relevância e data).
         List<Projeto> finalRankedResults = combineAndRankResults(exactMatches, semanticMatches, queryTerms);
@@ -392,7 +402,9 @@ public class SearchServiceRefactored {
             return projects;
         }
         
-        List<String> normalizedPhrases = exactPhrases.stream().map(this::normalizeText).toList();
+        List<String> normalizedPhrases = exactPhrases.stream()
+            .map(this::normalizeText)
+            .collect(Collectors.toList());
         
         return projects.stream()
             .filter(projeto -> {
@@ -408,7 +420,7 @@ public class SearchServiceRefactored {
                 );
                 return normalizedPhrases.stream().allMatch(textoCompleto::contains);
             })
-            .toList();
+            .collect(Collectors.toList()); // Usando Collectors.toList() para obter lista mutável
     }
     
     private List<Projeto> paginateResults(List<Projeto> results, int page, int size) {
@@ -737,6 +749,137 @@ public class SearchServiceRefactored {
      */
     public HybridSearchResultDTO searchHybridPaged(String userQuery, int page, int size) {
         return searchHybridPaged(userQuery, page, size, new HashMap<>());
+    }
+    
+    /**
+     * Realiza a busca híbrida paginada, enviando resultados incrementais via SSE.
+     * Primeiro envia os resultados da busca exata, depois completa com os resultados semânticos.
+     */
+    public void searchHybridPagedWithSSE(String userQuery, int page, int size, 
+                                      Map<String, List<String>> excludedFilters, 
+                                      SseEmitter emitter) {
+        try {
+            logger.info("Iniciando busca híbrida com SSE. Query: '{}', Page: {}, Size: {}, Exclusions: {}", 
+                        userQuery, page, size, excludedFilters);
+            
+            // 1. Extrai filtros (autor, ano, etc.) e a query semântica da busca do usuário.
+            SearchFilter filter = extractFilters(userQuery, excludedFilters);
+            logger.info("Filtros extraídos: {}", filter);
+
+            // 2. Busca IDs de projetos que correspondem aos filtros.
+            List<Integer> relevantIds = findRelevantIdsByFilters(filter);
+            if (relevantIds.isEmpty()) {
+                logger.info("Nenhum projeto encontrado para os filtros aplicados.");
+                HybridSearchResultDTO emptyResult = createEmptyResult(filter, page, size);
+                emptyResult.setResultType("exact");
+                emitter.send(emptyResult);
+                emitter.complete();
+                return;
+            }
+            logger.info("{} projetos encontrados após filtragem inicial.", relevantIds.size());
+
+            // 3. Se não há query semântica, retorna apenas os resultados filtrados e paginados.
+            if (filter.getSemanticQuery().isBlank()) {
+                HybridSearchResultDTO filterOnlyResult = performFilterOnlySearch(relevantIds, userQuery, filter, page, size);
+                filterOnlyResult.setResultType("exact");
+                emitter.send(filterOnlyResult);
+                emitter.complete();
+                return;
+            }
+
+            // 4. Prepara os termos da query para busca e ranking
+            List<String> queryTerms = getQueryTermsForSearch(filter);
+
+            long startExact = System.currentTimeMillis();
+            // 5. Busca por correspondências exatas dos termos da query.
+            List<Projeto> exactMatches = findExactMatches(relevantIds, queryTerms);
+            logger.info("Encontrados {} matches exatos.", exactMatches.size());
+            long timeExact = System.currentTimeMillis() - startExact;
+            logger.info("⏱️ BUSCA EXATA: {} ms | Encontrados {} resultados | IDs filtrados: {}",
+                    timeExact, exactMatches.size(), relevantIds.size());
+                    
+            // 6. Aplica o filtro de "frases exatas" (termos entre aspas) aos resultados exatos.
+            List<Projeto> filteredExactMatches = applyExactPhraseFilter(exactMatches, filter.getExactPhrases());
+            
+            // 7. Rankeia os resultados exatos para envio parcial
+            // Cria uma nova lista mutável a partir da lista imutável para poder ordenar
+            List<Projeto> sortedExactMatches = new ArrayList<>(filteredExactMatches);
+            sortedExactMatches.sort((p1, p2) -> {
+                // Ordenação por ano e número
+                int compareByAno = Integer.compare(p2.getAno(), p1.getAno());
+                if (compareByAno != 0) return compareByAno;
+                return Integer.compare(p2.getNumero(), p1.getNumero());
+            });
+            
+            List<Projeto> pagedExactMatches = paginateResults(sortedExactMatches, page, size);
+            List<String> termsForHighlight = getTermsForHighlight(userQuery, filter.getExactPhrases());
+            
+            // 8. Cria o DTO com resultados parciais (apenas exatos)
+            HybridSearchResultDTO exactResultDTO = new HybridSearchResultDTO(
+                convertToDto(pagedExactMatches),
+                buildAppliedFiltersMap(filter),
+                page, size, sortedExactMatches.size(),
+                termsForHighlight
+            );
+            exactResultDTO.setResultType("exact");
+            
+            // 9. Envia os resultados parciais
+            emitter.send(exactResultDTO);
+
+            // 10. Se necessário, complementa com busca semântica.
+            long startSemantic = System.currentTimeMillis();
+            List<Projeto> semanticMatches = new ArrayList<>();
+            if (sortedExactMatches.size() < AppConstants.MAX_RESULTS_LIMIT) {
+                List<Integer> exactMatchIds = sortedExactMatches.stream()
+                    .map(Projeto::getId)
+                    .collect(Collectors.toList()); // Usando Collectors.toList() para obter lista mutável
+                int limit = AppConstants.MAX_RESULTS_LIMIT - sortedExactMatches.size();
+                semanticMatches = findSemanticMatches(relevantIds, filter.getSemanticQuery(), exactMatchIds, limit);
+                logger.info("Encontrados {} matches semânticos.", semanticMatches.size());
+            }
+            long timeSemantic = System.currentTimeMillis() - startSemantic;
+            logger.info("⏱️ BUSCA SEMÂNTICA: {} ms | Encontrados {} resultados",
+                    timeSemantic, semanticMatches.size());
+
+            // 11. Combina os resultados (exatos primeiro, depois semânticos).
+            // Como especificado pelo requisito, os resultados exatos sempre vêm primeiro
+            List<Projeto> finalResults = new ArrayList<>(sortedExactMatches);
+            finalResults.addAll(semanticMatches);
+
+            // 12. Aplica o filtro de "frases exatas" (termos entre aspas) novamente.
+            List<Projeto> finalFilteredResults = applyExactPhraseFilter(finalResults, filter.getExactPhrases());
+            logger.info("Total de resultados após filtro de frases exatas: {}", finalFilteredResults.size());
+
+            // 13. Pagina os resultados finais.
+            List<Projeto> pagedResults = paginateResults(finalFilteredResults, page, size);
+            
+            // 14. Prepara o DTO de resposta final.
+            List<ProjetoResponseDTO> dtos = convertToDto(pagedResults);
+
+            HybridSearchResultDTO finalResultDTO = new HybridSearchResultDTO(
+                dtos, buildAppliedFiltersMap(filter), page, size, finalFilteredResults.size(), termsForHighlight
+            );
+            finalResultDTO.setResultType("complete");
+            
+            // 15. Envia os resultados finais
+            emitter.send(finalResultDTO);
+            
+            // 16. Completa o emitter
+            emitter.complete();
+
+        } catch (Exception e) {
+            logger.error("Erro fatal durante a busca híbrida para a query: '{}'", userQuery, e);
+            try {
+                HybridSearchResultDTO errorResult = createEmptyResult(
+                    new SearchFilter(new ArrayList<>(), new ArrayList<>(), null, null, "", new ArrayList<>()), page, size
+                );
+                errorResult.setResultType("error");
+                emitter.send(errorResult);
+                emitter.complete();
+            } catch (Exception ex) {
+                emitter.completeWithError(ex);
+            }
+        }
     }
 
     // Estruturas de dados auxiliares

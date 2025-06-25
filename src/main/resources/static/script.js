@@ -9,6 +9,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const searchInput = document.getElementById('search-input');
     const resultsContainer = document.getElementById('results-container');
     const loadingIndicator = document.getElementById('loading');
+    const cancelSearchButton = document.getElementById('cancel-search');
     const errorMessageDiv = document.getElementById('error-message');
     const filtersContainer = document.getElementById('filters-container');
     const chipsArea = document.getElementById('chips-area');
@@ -98,6 +99,11 @@ document.addEventListener('DOMContentLoaded', () => {
             executeSearch(currentQuery, currentPage, false);
         }
     });
+    
+    // Adicionar evento para o botão "Cancelar busca"
+    cancelSearchButton.addEventListener('click', () => {
+        cancelSearch();
+    });
 
     // Configurar o Infinite Scroll com Intersection Observer
     const observer = new IntersectionObserver((entries) => {
@@ -115,8 +121,22 @@ document.addEventListener('DOMContentLoaded', () => {
     // =========== FUNÇÃO DE BUSCA PRINCIPAL E LÓGICA DE CHIPS ===========
     // ===================================================================
 
-    // Função central que executa a busca e coordena a exibição
-    async function executeSearch(query, page, isNewSearch) {
+    // Variável para armazenar a conexão EventSource atual
+    let currentEventSource = null;
+    
+    // Função para cancelar a busca atual
+    function cancelSearch() {
+        if (currentEventSource) {
+            console.log("Cancelando busca em andamento...");
+            currentEventSource.close();
+            currentEventSource = null;
+            loadingIndicator.classList.add('hidden');
+            isLoading = false;
+        }
+    }
+    
+    // Função central que executa a busca e coordena a exibição usando SSE
+    function executeSearch(query, page, isNewSearch) {
         // Se as configurações ainda não foram carregadas, armazenamos a busca para execução posterior
         if (!configLoaded) {
             pendingSearch = { query, page, isNewSearch };
@@ -130,8 +150,11 @@ document.addEventListener('DOMContentLoaded', () => {
             pageSize = 10; // Valor de emergência caso o servidor não responda
         }
         
-        // Iniciar com uma URL básica
-        let apiUrl = `/api/search?q=${encodeURIComponent(query)}&page=${page}&size=${pageSize}`;
+        // Cancelar busca anterior se existir
+        cancelSearch();
+        
+        // Iniciar com uma URL básica (usando o endpoint de stream)
+        let apiUrl = `/api/search/stream?q=${encodeURIComponent(query)}&page=${page}&size=${pageSize}`;
         
         // Adicionar filtros excluídos apenas se houver algum
         const hasExcludedFilters = Object.values(excludedFilters).some(arr => arr.length > 0);
@@ -141,8 +164,8 @@ document.addEventListener('DOMContentLoaded', () => {
             console.log("Filtros excluídos:", excludedFilters);
         }
         
-        console.log(`Executando busca com tamanho de página ${pageSize}`);
-        console.log("URL da API:", apiUrl);
+        console.log(`Executando busca com SSE. Tamanho de página: ${pageSize}`);
+        console.log("URL da API (SSE):", apiUrl);
 
         // Prepara a interface para a busca
         if (isNewSearch) {
@@ -160,44 +183,101 @@ document.addEventListener('DOMContentLoaded', () => {
         
         errorMessageDiv.classList.add('hidden');
         loadingIndicator.classList.remove('hidden');
+        loadingIndicator.querySelector('span').textContent = "Buscando...";
         loadMoreButton.classList.add('hidden');
         isLoading = true;
 
-        try {
-            const response = await fetch(apiUrl);
-            if (!response.ok) {
-                throw new Error(`Erro na rede: ${response.statusText}`);
+        // Criar o EventSource
+        currentEventSource = new EventSource(apiUrl);
+        
+        // Processar eventos (resultados)
+        currentEventSource.onmessage = function(event) {
+            try {
+                const data = JSON.parse(event.data);
+                console.log(`Dados recebidos via SSE (tipo: ${data.resultType}):`, data);
+                
+                // Exibir filtros somente em nova busca e com o primeiro conjunto de resultados
+                if (isNewSearch && data.appliedFilters) {
+                    displayFilters(data.appliedFilters, query);
+                }
+                
+                // Se são resultados exatos (primeira etapa)
+                if (data.resultType === 'exact') {
+                    // Exibir resultados iniciais
+                    displayResults(data, query, isNewSearch);
+                    
+                    // Atualizar mensagem de carregamento para mostrar que estamos buscando resultados semânticos
+                    loadingIndicator.querySelector('span').textContent = "Buscando resultados semânticos...";
+                    
+                    // Atualizar estado de paginação temporariamente
+                    hasMoreResults = data.hasMore;
+                }
+                
+                // Se são resultados completos (inclui resultados semânticos)
+                if (data.resultType === 'complete') {
+                    // Limpar resultados anteriores (se nova busca ou se são resultados exatos a serem substituídos)
+                    if (isNewSearch) {
+                        resultsContainer.innerHTML = '';
+                    }
+                    
+                    // Exibir resultados completos
+                    displayResults(data, query, isNewSearch);
+                    
+                    // Atualizar estado de paginação final
+                    hasMoreResults = data.hasMore;
+                    
+                    // Finalizar busca
+                    loadingIndicator.classList.add('hidden');
+                    isLoading = false;
+                    
+                    // Mostrar ou esconder o botão "Carregar mais"
+                    loadMoreButton.classList.toggle('hidden', !hasMoreResults);
+                    
+                    // Mostrar mensagem de fim dos resultados se não houver mais
+                    const hasResults = document.querySelectorAll('.result-card').length > 0;
+                    endResultsMessage.classList.toggle('hidden', hasMoreResults || !hasResults);
+                    
+                    // Fechar a conexão SSE
+                    currentEventSource.close();
+                    currentEventSource = null;
+                }
+                
+                // Se houve um erro
+                if (data.resultType === 'error') {
+                    displayError('Ocorreu um erro ao realizar a busca.');
+                    loadingIndicator.classList.add('hidden');
+                    isLoading = false;
+                    
+                    // Fechar a conexão SSE
+                    currentEventSource.close();
+                    currentEventSource = null;
+                }
+                
+            } catch (error) {
+                console.error('Erro ao processar dados do SSE:', error);
+                displayError('Ocorreu um erro ao processar os resultados.');
+                loadingIndicator.classList.add('hidden');
+                isLoading = false;
+                
+                // Fechar a conexão SSE
+                if (currentEventSource) {
+                    currentEventSource.close();
+                    currentEventSource = null;
+                }
             }
-
-            const data = await response.json();
-            console.log("Dados recebidos da API:", data);
-
-            // Exibir filtros somente em nova busca
-            if (isNewSearch && data.appliedFilters) {
-                displayFilters(data.appliedFilters, query);
-            }
-            
-            // Exibir resultados (adicionando aos existentes se não for nova busca)
-            displayResults(data, query, isNewSearch);
-            
-            // Atualizar estado de paginação
-            hasMoreResults = data.hasMore;
-            
-            // Mostrar ou esconder o botão "Carregar mais"
-            loadMoreButton.classList.toggle('hidden', !hasMoreResults);
-            
-            // Mostrar mensagem de fim dos resultados se não houver mais resultados
-            // e se já tivermos pelo menos alguns resultados exibidos
-            const hasResults = document.querySelectorAll('.result-card').length > 0;
-            endResultsMessage.classList.toggle('hidden', hasMoreResults || !hasResults);
-
-        } catch (error) {
-            console.error('Falha ao buscar dados:', error);
-            displayError('Ocorreu um erro ao realizar a busca.');
-        } finally {
+        };
+        
+        // Tratar erros de conexão
+        currentEventSource.onerror = function(error) {
+            console.error('Erro no EventSource:', error);
+            displayError('Erro de conexão. Tente novamente.');
             loadingIndicator.classList.add('hidden');
             isLoading = false;
-        }
+            
+            // Fechar a conexão SSE
+            currentEventSource.close();
+            currentEventSource = null;
+        };
     }
 
     // NOVA FUNÇÃO para criar e exibir os chips de filtro organizados por categoria

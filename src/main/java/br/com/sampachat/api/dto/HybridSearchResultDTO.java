@@ -25,6 +25,8 @@ public class HybridSearchResultDTO {
     private boolean hasMore;
     // Termos para destaque no frontend
     private List<String> highlightTerms;
+    // Tipo de resultado: "exact" (só resultados exatos) ou "complete" (com resultados semânticos)
+    private String resultType;
     
     // Construtor para compatibilidade com código existente
     public HybridSearchResultDTO(List<ProjetoResponseDTO> projetos, Map<String, List<String>> appliedFilters) {
